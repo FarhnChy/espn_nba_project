@@ -1,0 +1,62 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="theme-color" content="#09111f" />
+  <title>Courtside — NBA scores & analytics</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Oswald:wght@500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <header class="topbar">
+    <a class="brand" href="#"><span class="brand-ball">C</span><span>COURTSIDE</span></a>
+    <nav id="nav" aria-label="Main navigation">
+      <button class="active" data-view="scores">Scores</button>
+      <button data-view="standings">Standings</button>
+      <button data-view="predict">Predict</button>
+      <button data-view="futures">Futures</button>
+    </nav>
+    <div class="top-actions"><span class="live-dot"></span> LIVE <button class="avatar">FM</button></div>
+  </header>
+
+  <main>
+    <section class="date-strip">
+      <button class="arrow" id="prevDay">‹</button>
+      <div class="dates" id="dates"></div>
+      <button class="arrow" id="nextDay">›</button>
+    </section>
+
+    <section id="scores" class="view active-view">
+      <div class="section-heading"><div><p class="eyebrow">FRIDAY NIGHT BASKETBALL</p><h1>Tonight's games</h1></div><p class="muted">All times ET · Demo data</p></div>
+      <div class="score-grid" id="scoreGrid"></div>
+      <div class="dashboard-grid">
+        <section class="panel game-center" id="gameCenter"></section>
+        <aside class="side-stack">
+          <section class="panel" id="leaders"></section>
+          <section class="panel" id="injuries"></section>
+        </aside>
+      </div>
+    </section>
+
+    <section id="standings" class="view">
+      <div class="section-heading"><div><p class="eyebrow">2025–26 SEASON</p><h1>Conference standings</h1></div><div class="segmented"><button class="active">East</button><button>West</button></div></div>
+      <section class="panel table-panel" id="standingsTable"></section>
+    </section>
+
+    <section id="predict" class="view">
+      <div class="section-heading"><div><p class="eyebrow">10,000 MONTE CARLO SIMULATIONS</p><h1>Playoff predictor</h1></div><button class="primary" id="simulate">Run simulation</button></div>
+      <div class="predict-grid"><section class="panel bracket" id="bracket"></section><aside class="panel model-card" id="modelCard"></aside></div>
+    </section>
+
+    <section id="futures" class="view">
+      <div class="section-heading"><div><p class="eyebrow">MODEL FORECASTS</p><h1>Season futures</h1></div><p class="muted">Updated after every game</p></div>
+      <div class="futures-grid" id="futuresGrid"></div>
+    </section>
+  </main>
+  <footer>COURTSIDE LABS <span>Independent basketball analytics concept · Not affiliated with the NBA or ESPN</span></footer>
+  <script src="app.js"></script>
+</body>
+</html>
