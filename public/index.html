@@ -4,7 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <meta name="theme-color" content="#09111f" />
-  <title>Courtside — NBA scores & analytics</title>
+  <title>Courtside - NBA scores & analytics</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Oswald:wght@500;600;700&display=swap" rel="stylesheet">
@@ -19,18 +19,18 @@
       <button data-view="predict">Predict</button>
       <button data-view="futures">Futures</button>
     </nav>
-    <div class="top-actions"><span class="live-dot"></span> LIVE <button class="avatar">FM</button></div>
+    <div class="top-actions"><span class="live-dot"></span><span id="providerStatus">DEMO</span><button class="avatar">FM</button></div>
   </header>
 
   <main>
     <section class="date-strip">
-      <button class="arrow" id="prevDay">‹</button>
+      <button class="arrow" id="prevDay" aria-label="Previous day">&lsaquo;</button>
       <div class="dates" id="dates"></div>
-      <button class="arrow" id="nextDay">›</button>
+      <button class="arrow" id="nextDay" aria-label="Next day">&rsaquo;</button>
     </section>
 
     <section id="scores" class="view active-view">
-      <div class="section-heading"><div><p class="eyebrow">FRIDAY NIGHT BASKETBALL</p><h1>Tonight's games</h1></div><p class="muted">All times ET · Demo data</p></div>
+      <div class="section-heading"><div><p class="eyebrow">FRIDAY NIGHT BASKETBALL</p><h1>Tonight's games</h1></div><p class="muted">All times ET - Demo API data</p></div>
       <div class="score-grid" id="scoreGrid"></div>
       <div class="dashboard-grid">
         <section class="panel game-center" id="gameCenter"></section>
@@ -42,7 +42,7 @@
     </section>
 
     <section id="standings" class="view">
-      <div class="section-heading"><div><p class="eyebrow">2025–26 SEASON</p><h1>Conference standings</h1></div><div class="segmented"><button class="active">East</button><button>West</button></div></div>
+      <div class="section-heading"><div><p class="eyebrow">2025-26 SEASON</p><h1>Conference standings</h1></div><div class="segmented"><button class="active">East</button><button>West</button></div></div>
       <section class="panel table-panel" id="standingsTable"></section>
     </section>
 
@@ -56,7 +56,7 @@
       <div class="futures-grid" id="futuresGrid"></div>
     </section>
   </main>
-  <footer>COURTSIDE LABS <span>Independent basketball analytics concept · Not affiliated with the NBA or ESPN</span></footer>
+  <footer>COURTSIDE LABS <span>Independent basketball analytics concept - Not affiliated with the NBA or ESPN</span></footer>
   <script src="app.js"></script>
 </body>
 </html>

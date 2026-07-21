@@ -1,31 +1,323 @@
-const teams = {
-  BOS:{name:'Celtics',city:'Boston',color:'#087a52'},NYK:{name:'Knicks',city:'New York',color:'#f58426'},
-  CLE:{name:'Cavaliers',city:'Cleveland',color:'#7b1636'},MIL:{name:'Bucks',city:'Milwaukee',color:'#1d684b'},
-  OKC:{name:'Thunder',city:'Oklahoma City',color:'#1677c8'},DEN:{name:'Nuggets',city:'Denver',color:'#fdb827'},
-  LAL:{name:'Lakers',city:'Los Angeles',color:'#552583'},GSW:{name:'Warriors',city:'Golden State',color:'#1d428a'},
-  MIN:{name:'Timberwolves',city:'Minnesota',color:'#0c2340'},PHX:{name:'Suns',city:'Phoenix',color:'#e56020'},
-  ORL:{name:'Magic',city:'Orlando',color:'#178bd1'},PHI:{name:'76ers',city:'Philadelphia',color:'#d9283e'}
+let appData = null;
+let selectedGameId = null;
+let dayOffset = 0;
+let activeConference = 'East';
+
+const $ = (selector) => document.querySelector(selector);
+const $$ = (selector) => document.querySelectorAll(selector);
+
+function team(code) {
+  return appData.teams[code] || { code, city: code, name: '', color: '#5aa8ff' };
+}
+
+function logo(code, className = 'team-logo') {
+  return `<span class="${className}" style="--team:${team(code).color}">${code}</span>`;
+}
+
+function gameDetail(game) {
+  if (game.status === 'LIVE') return `Q${game.period} - ${game.clock}`;
+  if (game.status === 'FINAL') return 'Final';
+  return game.clock;
+}
+
+function isoForOffset(offset) {
+  const date = new Date();
+  date.setDate(date.getDate() + offset);
+  return date.toISOString().slice(0, 10);
+}
+
+function readableDate(isoDate) {
+  const [year, month, day] = isoDate.split('-').map(Number);
+  const date = new Date(year, month - 1, day);
+  return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+}
+
+function renderLoading() {
+  $('#scoreGrid').innerHTML = '<section class="panel state-panel">Loading schedule...</section>';
+  $('#gameCenter').innerHTML = '<div class="panel-title"><h2>Game center</h2></div><p class="empty">Connecting to Courtside API.</p>';
+  $('#leaders').innerHTML = '<div class="panel-title"><h2>Game leaders</h2></div><p class="empty">Waiting for game data.</p>';
+  $('#injuries').innerHTML = '<div class="panel-title"><h2>Injury report</h2></div><p class="empty">Waiting for availability data.</p>';
+}
+
+function renderError(message) {
+  $('#scoreGrid').innerHTML = `<section class="panel state-panel"><h2>Data unavailable</h2><p class="empty">${message}</p><button class="primary" id="retryLoad">Retry</button></section>`;
+  $('#gameCenter').innerHTML = '<div class="panel-title"><h2>Game center</h2></div><p class="empty">The API did not return dashboard data.</p>';
+  $('#retryLoad').onclick = loadBootstrap;
+}
+
+async function loadBootstrap() {
+  renderLoading();
+  try {
+    const response = await fetch(`/api/bootstrap?date=${isoForOffset(dayOffset)}`, { headers: { Accept: 'application/json' } });
+    if (!response.ok) throw new Error(`API returned ${response.status}`);
+    appData = await response.json();
+    selectedGameId = appData.games[0]?.id || null;
+    renderApp();
+  } catch (error) {
+    renderError(error.message);
+  }
+}
+
+async function loadGamesForSelectedDate() {
+  $('#scoreGrid').innerHTML = '<section class="panel state-panel">Loading games...</section>';
+  try {
+    const response = await fetch(`/api/games?date=${isoForOffset(dayOffset)}`, { headers: { Accept: 'application/json' } });
+    if (!response.ok) throw new Error(`API returned ${response.status}`);
+    const payload = await response.json();
+    appData = { ...appData, meta: payload.meta, teams: payload.teams, games: payload.games };
+    selectedGameId = appData.games[0]?.id || null;
+    renderDates();
+    renderSource();
+    renderCards();
+    renderGame();
+    renderSide();
+  } catch (error) {
+    renderError(error.message);
+  }
+}
+
+function selectedGame() {
+  return appData.games.find((game) => game.id === selectedGameId) || appData.games[0];
+}
+
+function renderDates() {
+  const root = $('#dates');
+  root.innerHTML = '';
+
+  for (let i = -3; i <= 3; i += 1) {
+    const date = new Date();
+    date.setDate(date.getDate() + i + dayOffset);
+    root.innerHTML += `<button class="date ${i === 0 ? 'active' : ''}" data-offset="${i}">${date.toLocaleDateString('en-US', { weekday: 'short' })}<strong>${date.getDate()}</strong></button>`;
+  }
+
+  $$('.date').forEach((button) => {
+    button.onclick = () => {
+      dayOffset += Number(button.dataset.offset);
+      loadGamesForSelectedDate();
+    };
+  });
+}
+
+function teamLine(side, opponent, winner) {
+  const current = team(side.team);
+  return `
+    <div class="team-row ${winner ? 'winner' : ''}">
+      ${logo(side.team)}
+      <div>
+        <div class="team-name">${current.city} <span class="team-full">${current.name}</span></div>
+        <div class="record">${side.record}</div>
+      </div>
+      <div class="team-score">${side.score ?? '-'}</div>
+    </div>
+  `;
+}
+
+function hasWinner(game) {
+  return Number.isFinite(game.away.score) && Number.isFinite(game.home.score);
+}
+
+function renderCards() {
+  if (!appData.games.length) {
+    $('#scoreGrid').innerHTML = `<section class="panel state-panel"><h2>No games</h2><p class="empty">No games were returned for ${readableDate(isoForOffset(dayOffset))}.</p></section>`;
+    return;
+  }
+
+  $('#scoreGrid').innerHTML = appData.games.map((game) => {
+    const awayWinner = hasWinner(game) && game.away.score > game.home.score;
+    const homeWinner = hasWinner(game) && game.home.score > game.away.score;
+    return `
+      <article class="score-card ${selectedGameId === game.id ? 'selected' : ''}" data-id="${game.id}">
+        <div class="score-meta">
+          <span class="${game.status === 'LIVE' ? 'live' : ''}">${gameDetail(game)}</span>
+          <span>${game.status === 'UPCOMING' ? 'MATCHUP' : 'NBA'}</span>
+        </div>
+        ${teamLine(game.away, game.home, awayWinner)}
+        ${teamLine(game.home, game.away, homeWinner)}
+      </article>
+    `;
+  }).join('');
+
+  $$('.score-card').forEach((card) => {
+    card.onclick = () => {
+      selectedGameId = card.dataset.id;
+      renderCards();
+      renderGame();
+      renderSide();
+    };
+  });
+}
+
+function renderGame() {
+  const game = selectedGame();
+  if (!game) {
+    $('#gameCenter').innerHTML = '<div class="panel-title"><h2>Game center</h2></div><p class="empty">Select a date with games to see game details.</p>';
+    return;
+  }
+
+  const away = team(game.away.team);
+  const home = team(game.home.team);
+  const status = game.status === 'LIVE' ? `LIVE - ${gameDetail(game)}` : gameDetail(game);
+  const shots = game.shots.length
+    ? game.shots.map((shot) => `<span class="shot ${shot.result}" style="left:${shot.x}%;top:${shot.y}%">${shot.result === 'made' ? 'o' : 'x'}</span>`).join('')
+    : '<span class="court-empty">No shot detail</span>';
+  const plays = game.plays.length
+    ? game.plays.map((play) => `<div class="play"><time>${play.clock}</time><div><strong>${play.player}</strong>${play.text}</div></div>`).join('')
+    : '<p class="empty">Play-by-play will appear when the feed starts.</p>';
+
+  $('#gameCenter').innerHTML = `
+    <div class="panel-title"><h2>Game center</h2><span class="pill">${game.arena}</span></div>
+    <div class="game-scoreboard">
+      <div class="big-team">${logo(game.away.team, 'team-logo big-logo')}<div><strong>${away.name}</strong><div class="record">${game.away.record}</div></div></div>
+      <div><div class="score-main">${game.away.score ?? '-'}<small>-</small>${game.home.score ?? '-'}</div><div class="status-live">${status}</div></div>
+      <div class="big-team">${logo(game.home.team, 'team-logo big-logo')}<div><strong>${home.name}</strong><div class="record">${game.home.record}</div></div></div>
+    </div>
+    <div class="prob">
+      <div class="prob-labels">
+        <span>${game.away.team} ${game.away.winProbability}%</span>
+        <span>${game.status === 'LIVE' ? 'LIVE WIN PROBABILITY' : 'PREGAME WIN PROBABILITY'}</span>
+        <span>${game.home.team} ${game.home.winProbability}%</span>
+      </div>
+      <div class="prob-bar"><span style="width:${game.away.winProbability}%"></span><span style="width:${game.home.winProbability}%"></span></div>
+    </div>
+    <div class="tabs"><button class="active">Shot chart</button><button>Team stats</button><button>Box score</button><button>Play-by-play</button></div>
+    <div class="court-wrap">
+      <div class="court"><span class="hoop"></span>${shots}</div>
+      <div class="play-list">${plays}</div>
+    </div>
+  `;
+}
+
+function renderSide() {
+  const game = selectedGame();
+  if (!game) {
+    $('#leaders').innerHTML = '<div class="panel-title"><h2>Game leaders</h2></div><p class="empty">No game selected.</p>';
+    $('#injuries').innerHTML = '<div class="panel-title"><h2>Injury report</h2></div><p class="empty">No game selected.</p>';
+    return;
+  }
+
+  const leaders = game.leaders.length
+    ? game.leaders.map((leader, index) => `<div class="stat-row"><span class="rank">0${index + 1}</span><div><strong>${leader.player}</strong><small>${leader.team} - ${leader.position}</small></div><span class="stat-value">${leader.points}</span></div>`).join('')
+    : '<p class="empty">Leaders populate after box score data arrives.</p>';
+  const injuries = game.injuries.length
+    ? game.injuries.map((injury) => `<div class="injury-row"><span>+</span><div><strong>${injury.player}</strong><small>${injury.team} - ${injury.position}</small></div><span class="tag">${injury.status}</span></div>`).join('')
+    : '<p class="empty">No injury updates for this game.</p>';
+
+  $('#leaders').innerHTML = `<div class="panel-title"><h2>Game leaders</h2><span class="pill">PTS</span></div>${leaders}`;
+  $('#injuries').innerHTML = `<div class="panel-title"><h2>Injury report</h2><span class="pill">${game.injuries.length} updates</span></div>${injuries}`;
+}
+
+function renderStandingsControls() {
+  const control = $('.segmented');
+  control.innerHTML = Object.keys(appData.standings).map((conference) => `<button class="${conference === activeConference ? 'active' : ''}" data-conference="${conference}">${conference}</button>`).join('');
+  $$('.segmented button').forEach((button) => {
+    button.onclick = () => {
+      activeConference = button.dataset.conference;
+      renderStandings();
+    };
+  });
+}
+
+function renderStandings() {
+  renderStandingsControls();
+  const rows = appData.standings[activeConference] || [];
+  $('#standingsTable').innerHTML = `
+    <table class="standings-table">
+      <thead><tr><th>#</th><th>Team</th><th>W</th><th>L</th><th>PCT</th><th>GB</th><th>L10</th></tr></thead>
+      <tbody>
+        ${rows.map((row, index) => {
+          const current = team(row.team);
+          return `<tr><td>${index + 1}</td><td>${logo(row.team, 'mini-logo')}<b>${current.city} ${current.name}</b></td><td>${row.wins}</td><td>${row.losses}</td><td>${row.pct}</td><td>${row.gb}</td><td>${row.last10}</td></tr>`;
+        }).join('')}
+      </tbody>
+    </table>
+  `;
+}
+
+function matchup(row) {
+  return `<div class="matchup"><div class="fav"><span>${row.favorite}</span><b>${row.favoriteOdds}%</b></div><div><span>${row.underdog}</span><span>${row.underdogOdds}%</span></div></div>`;
+}
+
+function renderPredict(randomize = false) {
+  const prediction = appData.predictions;
+  const semifinal = prediction.bracket.semifinals[1];
+  const dynamicOdds = randomize ? Math.floor(55 + Math.random() * 30) : semifinal.favoriteOdds;
+  const secondSemifinal = { ...semifinal, favoriteOdds: dynamicOdds, underdogOdds: 100 - dynamicOdds };
+  const titleTeam = team(prediction.titleFavorite.team);
+
+  $('#bracket').innerHTML = `
+    <div class="panel-title"><h2>Eastern Conference</h2><span class="pill">${prediction.simulations.toLocaleString()} sims</span></div>
+    <div class="rounds">
+      <div><div class="round-title">First round</div>${prediction.bracket.firstRound.map(matchup).join('')}</div>
+      <div><div class="round-title">Semifinals</div>${matchup(prediction.bracket.semifinals[0])}${matchup(secondSemifinal)}</div>
+      <div><div class="round-title">Conference final</div>${prediction.bracket.conferenceFinal.map(matchup).join('')}<div class="round-title" style="margin-top:35px">Finals winner</div>${prediction.bracket.finals.map(matchup).join('')}</div>
+    </div>
+  `;
+
+  $('#modelCard').innerHTML = `
+    <div class="panel-title"><h2>Model outlook</h2><span class="pill">${prediction.modelVersion}</span></div>
+    <div class="champion">${logo(prediction.titleFavorite.team, 'team-logo big-logo')}<small class="muted">TITLE FAVORITE</small><br><strong>${titleTeam.city} ${titleTeam.name}</strong><p><b style="color:var(--green)">${prediction.titleFavorite.odds}</b> championship odds</p></div>
+    ${prediction.modelFactors.map((factor) => `<div class="factor"><div class="factor-head"><span>${factor.label}</span><b>${factor.value}</b></div><div class="factor-track"><span style="width:${factor.value}%"></span></div></div>`).join('')}
+  `;
+}
+
+function renderFutures() {
+  $('#futuresGrid').innerHTML = appData.futures.map((future) => `
+    <section class="panel future-card">
+      <h2>${future.market}</h2>
+      ${future.entries.map((entry) => {
+        const current = team(entry.team);
+        return `<div class="odds-row">${logo(entry.team, 'mini-logo')}<span>${current.city} ${current.name}</span><b>${entry.value}</b></div>`;
+      }).join('')}
+    </section>
+  `).join('');
+}
+
+function renderSource() {
+  const isDemo = appData.meta.dataQuality === 'demo-only';
+  const label = isDemo ? 'Demo API data' : appData.meta.provider;
+  const fallback = appData.meta.fallbackReason ? ` - fallback: ${appData.meta.fallbackReason}` : '';
+  const gameFallback = appData.meta.gameFallback ? ' - demo games shown' : '';
+  $('.section-heading .muted').textContent = `${readableDate(isoForOffset(dayOffset))} - All times ET - ${label}${fallback}${gameFallback}`;
+  $('#providerStatus').textContent = isDemo ? 'DEMO' : appData.meta.source.toUpperCase();
+}
+
+function renderApp() {
+  renderSource();
+  renderDates();
+  renderCards();
+  renderGame();
+  renderSide();
+  renderStandings();
+  renderPredict();
+  renderFutures();
+}
+
+$$('#nav button').forEach((button) => {
+  button.onclick = () => {
+    $$('#nav button').forEach((item) => item.classList.remove('active'));
+    button.classList.add('active');
+    $$('.view').forEach((view) => view.classList.remove('active-view'));
+    $(`#${button.dataset.view}`).classList.add('active-view');
+  };
+});
+
+$('#prevDay').onclick = () => {
+  dayOffset -= 1;
+  loadGamesForSelectedDate();
 };
-const games=[
- {id:1,away:'BOS',home:'NYK',as:87,hs:84,status:'LIVE',detail:'Q4 · 6:42',records:['44–16','38–22'],prob:[61,39]},
- {id:2,away:'DEN',home:'OKC',as:112,hs:118,status:'FINAL',detail:'Final',records:['40–21','48–12'],prob:[0,100]},
- {id:3,away:'LAL',home:'GSW',as:null,hs:null,status:'UPCOMING',detail:'10:00 PM',records:['36–24','34–27'],prob:[46,54]}
-];
-let selected=games[0], dayOffset=0;
-const logo=(code,cls='team-logo')=>`<span class="${cls}" style="--team:${teams[code].color}">${code}</span>`;
-function renderDates(){const root=document.querySelector('#dates');root.innerHTML='';for(let i=-3;i<=3;i++){const d=new Date();d.setDate(d.getDate()+i+dayOffset);root.innerHTML+=`<div class="date ${i===0?'active':''}">${d.toLocaleDateString('en-US',{weekday:'short'})}<strong>${d.getDate()}</strong></div>`}}
-function renderCards(){document.querySelector('#scoreGrid').innerHTML=games.map(g=>`<article class="score-card ${selected.id===g.id?'selected':''}" data-id="${g.id}"><div class="score-meta"><span class="${g.status==='LIVE'?'live':''}">${g.detail}</span><span>${g.status==='UPCOMING'?'MATCHUP':'NBA'}</span></div>${teamLine(g.away,g.records[0],g.as,g.as>g.hs)}${teamLine(g.home,g.records[1],g.hs,g.hs>g.as)}</article>`).join('');document.querySelectorAll('.score-card').forEach(c=>c.onclick=()=>{selected=games.find(g=>g.id==c.dataset.id);renderCards();renderGame()})}
-function teamLine(code,record,score,winner){return `<div class="team-row ${winner?'winner':''}">${logo(code)}<div><div class="team-name">${teams[code].city} <span class="team-full">${teams[code].name}</span></div><div class="record">${record}</div></div><div class="team-score">${score??'—'}</div></div>`}
-const shots=[['made',18,48],['miss',28,20],['made',37,67],['miss',48,87],['made',55,35],['made',64,71],['miss',73,17],['made',82,50],['miss',89,82],['made',43,13],['miss',67,43],['made',32,81]];
-const plays=[['6:42','J. Brunson','Driving layup made · 2 PTS'],['7:03','J. Tatum','25-foot three missed'],['7:18','K. Porziņģis','Defensive rebound'],['7:31','M. Bridges','Personal foul · 3rd'],['7:46','J. Brown','Pullup jumper made · 2 PTS']];
-function renderGame(){const g=selected,a=teams[g.away],h=teams[g.home];document.querySelector('#gameCenter').innerHTML=`<div class="panel-title"><h2>Game center</h2><span class="pill">${g.detail}</span></div><div class="game-scoreboard"><div class="big-team">${logo(g.away,'team-logo big-logo')}<div><strong>${a.name}</strong><div class="record">${g.records[0]}</div></div></div><div><div class="score-main">${g.as??'—'}<small>–</small>${g.hs??'—'}</div><div class="status-live">${g.status==='LIVE'?'● LIVE · '+g.detail:g.detail}</div></div><div class="big-team">${logo(g.home,'team-logo big-logo')}<div><strong>${h.name}</strong><div class="record">${g.records[1]}</div></div></div></div><div class="prob"><div class="prob-labels"><span>${g.away} ${g.prob[0]}%</span><span>LIVE WIN PROBABILITY</span><span>${g.home} ${g.prob[1]}%</span></div><div class="prob-bar"><span style="width:${g.prob[0]}%"></span><span style="width:${g.prob[1]}%"></span></div></div><div class="tabs"><button class="active">Shot chart</button><button>Team stats</button><button>Box score</button><button>Play-by-play</button></div><div class="court-wrap"><div class="court"><span class="hoop"></span>${shots.map(s=>`<span class="shot ${s[0]}" style="left:${s[1]}%;top:${s[2]}%">${s[0]==='made'?'○':'×'}</span>`).join('')}</div><div class="play-list">${plays.map(p=>`<div class="play"><time>${p[0]}</time><div><strong>${p[1]}</strong>${p[2]}</div></div>`).join('')}</div></div>`}
-function renderSide(){document.querySelector('#leaders').innerHTML=`<div class="panel-title"><h2>Game leaders</h2><span class="pill">PTS</span></div>${[['J. Tatum','BOS · SF','31'],['J. Brunson','NYK · PG','27'],['J. Brown','BOS · SG','22']].map((x,i)=>`<div class="stat-row"><span class="rank">0${i+1}</span><div><strong>${x[0]}</strong><small>${x[1]}</small></div><span class="stat-value">${x[2]}</span></div>`).join('')}`;document.querySelector('#injuries').innerHTML=`<div class="panel-title"><h2>Injury report</h2><span class="pill">4 updates</span></div>${[['M. Robinson','NYK · C','OUT'],['A. Horford','BOS · C','GTD'],['O. Anunoby','NYK · SF','ACTIVE']].map(x=>`<div class="injury-row"><span>✚</span><div><strong>${x[0]}</strong><small>${x[1]}</small></div><span class="tag">${x[2]}</span></div>`).join('')}`}
-const standings=[['CLE',49,11,'.817','—','8–2'],['BOS',44,16,'.733','5.0','7–3'],['NYK',38,22,'.633','11.0','6–4'],['MIL',35,25,'.583','14.0','7–3'],['ORL',33,28,'.541','16.5','5–5'],['PHI',31,29,'.517','18.0','6–4']];
-function renderStandings(){document.querySelector('#standingsTable').innerHTML=`<table class="standings-table"><thead><tr><th>#</th><th>Team</th><th>W</th><th>L</th><th>PCT</th><th>GB</th><th>L10</th></tr></thead><tbody>${standings.map((r,i)=>`<tr><td>${i+1}</td><td>${logo(r[0],'mini-logo')}<b>${teams[r[0]].city} ${teams[r[0]].name}</b></td><td>${r[1]}</td><td>${r[2]}</td><td>${r[3]}</td><td>${r[4]}</td><td>${r[5]}</td></tr>`).join('')}</tbody></table>`}
-const match=(a,ap,b,bp)=>`<div class="matchup"><div class="fav"><span>${a}</span><b>${ap}%</b></div><div><span>${b}</span><span>${bp}%</span></div></div>`;
-function renderPredict(random=false){let n=random?()=>Math.floor(55+Math.random()*30):()=>72;document.querySelector('#bracket').innerHTML=`<div class="panel-title"><h2>Eastern Conference</h2><span class="pill">Projected bracket</span></div><div class="rounds"><div><div class="round-title">First round</div>${match('1 CLE',91,'8 ATL',9)}${match('4 MIL',66,'5 ORL',34)}${match('2 BOS',88,'7 MIA',12)}${match('3 NYK',71,'6 IND',29)}</div><div><div class="round-title">Semifinals</div>${match('1 CLE',57,'4 MIL',43)}${match('2 BOS',n(),'3 NYK',100-n())}</div><div><div class="round-title">Conference final</div>${match('2 BOS',58,'1 CLE',42)}<div class="round-title" style="margin-top:35px">Finals winner</div>${match('BOS',54,'OKC',46)}</div></div>`;document.querySelector('#modelCard').innerHTML=`<div class="panel-title"><h2>Model outlook</h2><span class="pill">v0.1</span></div><div class="champion">${logo('BOS','team-logo big-logo')}<small class="muted">TITLE FAVORITE</small><br><strong>Boston Celtics</strong><p><b style="color:var(--green)">24.8%</b> championship odds</p></div>${[['Net rating',86],['Recent form',73],['Schedule strength',61],['Rest & travel',48],['Injury health',76]].map(x=>`<div class="factor"><div class="factor-head"><span>${x[0]}</span><b>${x[1]}</b></div><div class="factor-track"><span style="width:${x[1]}%"></span></div></div>`).join('')}`}
-const futures=[['NBA champion',[['BOS','24.8%'],['OKC','22.1%'],['CLE','15.6%'],['DEN','12.4%']]],['MVP award',[['OKC','S. Gilgeous-Alexander'],['DEN','N. Jokić'],['MIL','G. Antetokounmpo'],['BOS','J. Tatum']]],['No. 1 seed',[['CLE','East · 78%'],['OKC','West · 84%'],['BOS','East · 19%'],['DEN','West · 11%']]]];
-function renderFutures(){document.querySelector('#futuresGrid').innerHTML=futures.map(f=>`<section class="panel future-card"><h2>${f[0]}</h2>${f[1].map(x=>`<div class="odds-row">${logo(x[0],'mini-logo')}<span>${teams[x[0]].city} ${teams[x[0]].name}</span><b>${x[1]}</b></div>`).join('')}</section>`).join('')}
-document.querySelectorAll('#nav button').forEach(b=>b.onclick=()=>{document.querySelectorAll('#nav button').forEach(x=>x.classList.remove('active'));b.classList.add('active');document.querySelectorAll('.view').forEach(x=>x.classList.remove('active-view'));document.querySelector('#'+b.dataset.view).classList.add('active-view')});
-document.querySelector('#prevDay').onclick=()=>{dayOffset--;renderDates()};document.querySelector('#nextDay').onclick=()=>{dayOffset++;renderDates()};document.querySelector('#simulate').onclick=()=>{const b=document.querySelector('#simulate');b.textContent='Simulating…';setTimeout(()=>{renderPredict(true);b.textContent='Run simulation'},550)};
-renderDates();renderCards();renderGame();renderSide();renderStandings();renderPredict();renderFutures();
+
+$('#nextDay').onclick = () => {
+  dayOffset += 1;
+  loadGamesForSelectedDate();
+};
+
+$('#simulate').onclick = () => {
+  const button = $('#simulate');
+  button.textContent = 'Simulating...';
+  setTimeout(() => {
+    renderPredict(true);
+    button.textContent = 'Run simulation';
+  }, 550);
+};
+
+loadBootstrap();
